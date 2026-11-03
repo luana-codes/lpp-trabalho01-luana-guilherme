@@ -44,3 +44,6 @@ Dado que a taverna está aberta e um prato está em preparo, quando passam 5 seg
 
 ### Disputa entre dois jogadores
 Dado que há 1 de 2 cozinheiros ocupados e ingredientes suficientes, quando os jogadores A e B emitem `prato.solicitado` ao mesmo tempo, então o servidor processa um por vez: emite `preparo.iniciado` para todos (resultado do pedido de A) e `operacao.recusada` ("Sem cozinheiro livre") apenas para B.
+
+### Cliente desiste
+Dado que a taverna está aberta e um prato começou a ser preparado com tempo de preparo sorteado em 11 ou 12 segundos (maior que a paciência do cliente, de 10 segundos), quando o tempo de preparo termina, então o servidor emite `cliente.desistiu` para todos (e não `prato.concluido`), liberando 1 cozinheiro, sem aumentar os pratos prontos e sem devolver os ingredientes.
