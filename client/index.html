@@ -348,6 +348,12 @@
           avisar("Obra de " + d.por + " concluída! A produção aumentou.", "ok");
           jogo.obraConcluida(d.estado);
         });
+
+        ouvir("vila.encerrada", "escurece a vila e bloqueia novas ações", (d) => {
+          atualizar(d);
+          avisar("Temporada encerrada.");
+          jogo.vilaEncerrada();
+        });
       }
 
       // ===== PEDIDOS (emit): o cliente PEDE algo ao servidor =====
@@ -359,7 +365,7 @@
         pedir("construcao.solicitada");
       }
       function encerrarVila() {
-        // ETAPA 6: pedir "vila.encerramento_solicitado"
+        pedir("vila.encerramento_solicitado");
       }
 
       return { nome, papel, conectado, estado, avisos, eventosVisiveis, contadores, ocultarProducao, porMinuto,
