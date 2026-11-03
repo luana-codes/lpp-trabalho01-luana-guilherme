@@ -332,6 +332,11 @@
           avisar(d.por + " iniciou uma obra");
           jogo.obraIniciada(d.estado);
         });
+
+        ouvir("operacao.recusada", "avisa o motivo e a tela treme", (d) => {
+          avisar(d.motivo, "erro");
+          jogo.recusado(d.motivo);
+        });
       }
 
       // ===== PEDIDOS (emit): o cliente PEDE algo ao servidor =====

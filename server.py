@@ -61,8 +61,24 @@ async def abrir_vila(sid, dados=None):
 @sio.on("construcao.solicitada")
 async def construir(sid, dados=None):
     pedido = "construcao.solicitada"
+
+    if estado["fase"] != "aberta":
+        motivo = "A temporada não está aberta"
+    elif estado["toras"] < CUSTO:
+        motivo = "Toras insuficientes"
+    elif estado["trabalhadores"] >= estado["limite"]:
+        motivo = "Sem trabalhador livre"
+    else:
+        motivo = None
+
+    if motivo:
+        await recusar(sid, motivo, pedido)
+        return
+
     estado["toras"] -= CUSTO
     estado["trabalhadores"] += 1
     estado["em_obra"] += 1
     nome = jogadores[sid]["nome"]
     await sio.emit("construcao.iniciada", fato(pedido, por=nome))
+
+
