@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vila em Tempo Real</title>
+  <title>Taverna em Tempo Real</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 580px; margin: 24px auto; padding: 0 12px; }
     .cartao, .painel { border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin: 12px 0; }
@@ -43,33 +43,33 @@
 
   <!-- Tela de entrada -->
   <section v-if="!conectado" class="cartao">
-    <h1>🏘️ Vila em Tempo Real</h1>
+    <h1>🍻 Taverna em Tempo Real</h1>
     <input v-model="nome" placeholder="Seu nome">
     <button @click="entrar('mestre')">Entrar como Mestre</button>
     <button @click="entrar('jogador')">Entrar como Jogador</button>
   </section>
 
-  <!-- Tela da vila -->
+  <!-- Tela da Taverna -->
   <main v-else>
-    <h1>🏘️ Vila</h1>
-    <p>{{ papel }}: <strong>{{ nome || "Anônimo" }}</strong> · Temporada: <strong>{{ estado.fase }}</strong></p>
+    <h1>🍻 Taverna</h1>
+    <p>{{ papel }}: <strong>{{ nome || "Anônimo" }}</strong> · Taverna: <strong>{{ estado.fase }}</strong></p>
 
-    <!-- A vila desenhada pelo Phaser aparece aqui -->
+    <!-- A taverna desenhada pelo Phaser aparece aqui -->
     <div id="jogo"></div>
 
     <section class="painel">
-      <p>🪵 Toras: <strong>{{ estado.toras }}</strong> (+{{ porMinuto }}/min)</p>
-      <p>👷 Trabalhadores: {{ estado.trabalhadores }}/{{ estado.limite }}
-        <progress :value="estado.trabalhadores" :max="estado.limite"></progress></p>
-      <p>🏠 Construções: {{ estado.concluidas }} concluídas, {{ estado.em_obra }} em obra</p>
+      <p>🥕 Ingredientes: <strong>{{ estado.ingredientes }}</strong> (+{{ porMinuto }}/min)</p>
+      <p>🧑‍🍳 Cozinheiros: {{ estado.cozinheiros }}/{{ estado.limite }}
+        <progress :value="estado.cozinheiros" :max="estado.limite"></progress></p>
+      <p>🍲 Pratos prontos: {{ estado.pratos }} · em preparo: {{ estado.em_preparo }}</p>
     </section>
 
     <section>
       <template v-if="papel === 'mestre'">
-        <button @click="abrirVila">Abrir temporada</button>
-        <button @click="encerrarVila">Encerrar temporada</button>
+        <button @click="abrirTaverna">Abrir taverna</button>
+        <button @click="encerrarTaverna">Encerrar taverna</button>
       </template>
-      <button v-else @click="construir">🔨 Construir (custo {{ estado.custo }} toras)</button>
+      <button v-else @click="prepararPrato">🍲 Preparar prato (custo {{ estado.custo }} ingredientes)</button>
     </section>
 
     <ul class="avisos">
@@ -83,8 +83,7 @@
         <span class="badge emit">⬆ emit</span> este cliente PEDIU algo ao servidor ·
         <span class="badge on">⬇ on</span> este cliente ESCUTOU um evento e reagiu
       </p>
-      <!-- ETAPA 7 (dupla): cole aqui os contadores por evento -->
-      <label><input type="checkbox" v-model="ocultarProducao"> ocultar recurso.produzido (é muito frequente)</label>
+      <label><input type="checkbox" v-model="ocultarProducao"> ocultar ingrediente.produzido (é muito frequente)</label>
       <ul>
         <li v-for="e in eventosVisiveis" :class="e.tipo">
           <span class="badge" :class="e.sentido === 'enviado' ? 'emit' : 'on'">{{ e.sentido === 'enviado' ? '⬆ emit' : '⬇ on' }}</span>
@@ -107,7 +106,7 @@
 
 <script>
   // =====================================================================
-  //  A VILA DESENHADA (Phaser) - já vem pronta, você NÃO precisa alterar.
+  //  A TAVERNA DESENHADA (Phaser).
   //  O cenário é um MAPA (Tilemap) feito no Tiled: client/assets/vila.json.
   //  Cada método abaixo reage a UM evento do servidor.
   //  Seu trabalho é chamar o método certo dentro de cada socket.on(...).
@@ -120,10 +119,10 @@
 
     class VilaScene extends Phaser.Scene {
       constructor() { super("vila"); }
-
+ 
       preload() {
         this.load.image("tiles", "assets/tileset-vila.png");                 // peças do cenário
-        this.load.spritesheet("sprites", "assets/sprites-vila.png",          // casa e canteiro
+        this.load.spritesheet("sprites", "assets/sprites-vila.png",          // prato pronto e fogão
           { frameWidth: 32, frameHeight: 32 });
         this.load.tilemapTiledJSON("mapa", "assets/vila.json");              // o mapa
       }
@@ -135,42 +134,50 @@
         mapa.createLayer("chao", tileset);
         mapa.createLayer("decoracao", tileset);
 
-        // 2) pontos marcados no mapa: onde ficam as obras e o acampamento de lenha
+        // 2) pontos marcados no mapa: onde ficam os preparos e a despensa
         const pontos = mapa.getObjectLayer("pontos").objects;
         this.lotes = pontos.filter((p) => p.name.startsWith("lote"))
           .sort((a, b) => a.name.localeCompare(b.name, "pt", { numeric: true }));
-        this.acampamento = pontos.find((p) => p.name === "acampamento");
+        this.acampamento = pontos.find((p) => p.name === "acampamento");   // a despensa
 
         // 3) câmera: o mapa é pequeno (pixel art), então damos zoom 2x
         this.cameras.main.setZoom(2).centerOn(mapa.widthInPixels / 2, mapa.heightInPixels / 2);
         this.larg = mapa.widthInPixels;
         this.alt = mapa.heightInPixels;
-
-        this.obras = [];      // obras em andamento (a primeira a começar é a primeira a terminar)
+ 
+        this.obras = [];      // preparos em andamento
         this.usados = 0;      // quantos lotes já foram usados
         this.faixa = this.add.text(this.larg / 2, 9, "⏳ Aguardando o Mestre", {
           fontSize: "8px", color: "#ffffff", backgroundColor: "#00000099",
           padding: { x: 5, y: 2 }, resolution: 2,
         }).setOrigin(0.5).setDepth(10);
-
+ 
         cena = this;
         fila.splice(0).forEach(([nome, args]) => this[nome](...args));
       }
 
       // ----- apoio -----
       lote(i) { return this.lotes[i % this.lotes.length]; }
-      criarCasa(x, y) {
+      criarCasa(x, y) {                       // desenha um prato pronto
         const casa = this.add.sprite(x, y, "sprites", 0);
         this.tweens.add({ targets: casa, scale: { from: 0.3, to: 1 }, duration: 400, ease: "Back.Out" });
       }
-      criarObra(duracao) {
+      criarObra(duracao, id) {                // desenha um preparo em andamento
         const { x, y } = this.lote(this.usados++);
         const canteiro = this.add.sprite(x, y, "sprites", 1);
         const fundo = this.add.rectangle(x - 10, y + 16, 20, 3, 0x333333).setOrigin(0, 0.5);
         const barra = this.add.rectangle(x - 10, y + 16, 20, 3, 0xffd54a).setOrigin(0, 0.5);
         barra.scaleX = 0;
         this.tweens.add({ targets: barra, scaleX: 1, duration: duracao });
-        this.obras.push({ canteiro, fundo, barra, x, y });
+        this.obras.push({ canteiro, fundo, barra, x, y, id });
+      }
+      retirarObra(id) {                       // acha o preparo certo (pelo id) ou o mais antigo
+        let i = id !== undefined ? this.obras.findIndex((o) => o.id === id) : -1;
+        if (i < 0) i = 0;
+        const obra = this.obras.splice(i, 1)[0];
+        if (!obra) return null;
+        obra.canteiro.destroy(); obra.fundo.destroy(); obra.barra.destroy();
+        return obra;
       }
       flutuar(texto, x, y, cor) {
         const t = this.add.text(x, y, texto, {
@@ -180,43 +187,47 @@
         this.tweens.add({ targets: t, y: y - 16, alpha: 0, duration: 1400, onComplete: () => t.destroy() });
       }
 
-      // ----- um método para cada evento do servidor -----
+       // ----- um método para cada evento do servidor -----
       mostrarEstado(estado) {                 // estado.sincronizado
-        for (let i = 0; i < estado.concluidas; i++) {
+        for (let i = 0; i < estado.pratos; i++) {
           const p = this.lote(this.usados++);
           this.criarCasa(p.x, p.y);
         }
-        for (let i = 0; i < estado.em_obra; i++) this.criarObra(estado.tempo_obra * 1000);
-        if (estado.fase === "aberta") this.vilaIniciada();
-        if (estado.fase === "encerrada") this.vilaEncerrada();
+        for (let i = 0; i < estado.em_preparo; i++) this.criarObra(estado.tempo_obra * 1000);
+        if (estado.fase === "aberta") this.tavernaIniciada();
+        if (estado.fase === "encerrada") this.tavernaEncerrada();
       }
-      vilaIniciada() {                        // vila.iniciada
-        this.faixa.setText("☀️ Temporada aberta");
+      tavernaIniciada() {                     // taverna.iniciada
+        this.faixa.setText("☀️ Taverna aberta");
       }
-      obraIniciada(estado) {                  // construcao.iniciada
-        this.criarObra(estado.tempo_obra * 1000);
-        this.flutuar("-" + estado.custo + " 🪵", this.acampamento.x, this.acampamento.y, "#b00020");
+      preparoIniciado(estado, tempo, id) {    // preparo.iniciado
+        this.criarObra((tempo || estado.tempo_obra) * 1000, id);
+        this.flutuar("-" + estado.custo + " 🥕", this.acampamento.x, this.acampamento.y, "#b00020");
       }
-      obraConcluida(estado) {                 // construcao.concluida
-        const obra = this.obras.shift();
+      pratoConcluido(id) {                    // prato.concluido
+        const obra = this.retirarObra(id);
         if (!obra) return;
-        obra.canteiro.destroy(); obra.fundo.destroy(); obra.barra.destroy();
         this.criarCasa(obra.x, obra.y);
-        this.flutuar("🏠 Obra concluída!", obra.x, obra.y - 18, "#1b5e20");
+        this.flutuar("🍲 Prato pronto!", obra.x, obra.y - 18, "#1b5e20");
       }
-      recursoProduzido(estado) {              // recurso.produzido
-        this.flutuar("+" + estado.producao + " 🪵", this.acampamento.x, this.acampamento.y, "#1b5e20");
+      clienteDesistiu(id) {                   // cliente.desistiu
+        const obra = this.retirarObra(id);
+        if (!obra) return;
+        this.flutuar("😠 Cliente foi embora", obra.x, obra.y - 18, "#b00020");
+      }
+      ingredienteProduzido(estado) {          // ingrediente.produzido
+        this.flutuar("+" + estado.producao + " 🥕", this.acampamento.x, this.acampamento.y, "#1b5e20");
       }
       recusado(motivo) {                      // operacao.recusada (só quem pediu)
         this.cameras.main.shake(180, 0.006);
         this.flutuar("✋ " + motivo, this.larg / 2, this.alt - 28, "#b00020");
       }
-      vilaEncerrada() {                       // vila.encerrada
-        this.faixa.setText("🌙 Temporada encerrada");
+      tavernaEncerrada() {                    // taverna.encerrada
+        this.faixa.setText("🌙 Taverna encerrada");
         this.add.rectangle(this.larg / 2, this.alt / 2, this.larg, this.alt, 0x000033, 0.35).setDepth(5);
       }
     }
-
+ 
     return {
       iniciar(idContainer) {
         if (partida) return;
@@ -226,19 +237,20 @@
         });
       },
       mostrarEstado: (...a) => chamar("mostrarEstado", ...a),
-      vilaIniciada: (...a) => chamar("vilaIniciada", ...a),
-      obraIniciada: (...a) => chamar("obraIniciada", ...a),
-      obraConcluida: (...a) => chamar("obraConcluida", ...a),
-      recursoProduzido: (...a) => chamar("recursoProduzido", ...a),
+      tavernaIniciada: (...a) => chamar("tavernaIniciada", ...a),
+      preparoIniciado: (...a) => chamar("preparoIniciado", ...a),
+      pratoConcluido: (...a) => chamar("pratoConcluido", ...a),
+      clienteDesistiu: (...a) => chamar("clienteDesistiu", ...a),
+      ingredienteProduzido: (...a) => chamar("ingredienteProduzido", ...a),
       recusado: (...a) => chamar("recusado", ...a),
-      vilaEncerrada: (...a) => chamar("vilaEncerrada", ...a),
+      tavernaEncerrada: (...a) => chamar("tavernaEncerrada", ...a),
     };
   }
 </script>
 
 <script>
   // =====================================================================
-  //  A APLICAÇÃO (Vue + Socket.IO) - é aqui que você trabalha.
+  //  A APLICAÇÃO (Vue + Socket.IO) - é aqui que o paradigma aparece.
   // =====================================================================
   const { createApp, ref, reactive, computed, nextTick } = Vue;
 
@@ -248,16 +260,16 @@
       const papel = ref("");
       const conectado = ref(false);
       const estado = reactive({
-        fase: "aguardando", toras: 0, trabalhadores: 0, limite: 0,
-        producao: 0, intervalo: 0, tempo_obra: 0, custo: 0, concluidas: 0, em_obra: 0,
+        fase: "aguardando", ingredientes: 0, cozinheiros: 0, limite: 0,
+        producao: 0, intervalo: 0, tempo_obra: 0, custo: 0, pratos: 0, em_preparo: 0,
       });
       const avisos = ref([]);
       const eventos = ref([]);              // linha do tempo do painel de eventos
       const contadores = reactive({});      // quantas vezes cada evento ocorreu
       const ocultarProducao = ref(false);
       const eventosVisiveis = computed(() =>
-        eventos.value.filter((e) => !(ocultarProducao.value && e.nome === "recurso.produzido")));
-      const jogo = criarJogo();      // a vila desenhada (Phaser)
+        eventos.value.filter((e) => !(ocultarProducao.value && e.nome === "ingrediente.produzido")));
+      const jogo = criarJogo();      // a taverna desenhada (Phaser)
       let socket = null;
 
       const porMinuto = computed(() =>
@@ -272,12 +284,12 @@
         Object.assign(estado, d.estado);   // copia o estado enviado pelo servidor
       }
 
-      // ----- painel de eventos (já pronto) -----
+      // ----- painel de eventos -----
       function resumir(d) {                // transforma os dados do evento em texto curto
         if (!d) return "";
         const { estado: e, causa, ...resto } = d;
         const partes = Object.entries(resto).map(([k, v]) => k + ": " + v);
-        if (e) partes.push("toras " + e.toras + ", trabalhadores " + e.trabalhadores + "/" + e.limite);
+        if (e) partes.push("ingredientes " + e.ingredientes + ", cozinheiros " + e.cozinheiros + "/" + e.limite);
         return partes.join(" · ");
       }
       function registrar(sentido, nome, dados, reacao = "") {
@@ -287,7 +299,7 @@
           causa: (dados && dados.causa) || "", dados: resumir(dados), reacao });
         eventos.value = eventos.value.slice(0, 40);
       }
-
+ 
       // OUVIR (on): registra o evento no painel e executa a reação do cliente
       function ouvir(nome, reacao, funcao) {
         socket.on(nome, (d) => { registrar("recebido", nome, d, reacao); funcao(d); });
@@ -297,79 +309,86 @@
         registrar("enviado", nome, dados);
         if (dados === undefined) socket.emit(nome); else socket.emit(nome, dados);
       }
-
+ 
       function entrar(p) {
         papel.value = p;
         socket = io({ auth: { nome: nome.value || "Anônimo", papel: p } });
         socket.on("connect", () => {
           conectado.value = true;
-          nextTick(() => jogo.iniciar("jogo"));   // a vila desenhada começa quando a tela aparece
+          nextTick(() => jogo.iniciar("jogo"));   // a taverna desenhada começa quando a tela aparece
         });
-
+ 
         // ===== ESCUTAS (on): o cliente reage aos FATOS do servidor =====
-        // ouvir(evento, "o que o cliente faz ao receber", função)
-        // ETAPA 1: ouvir "estado.sincronizado"   -> jogo.mostrarEstado(...)
-        // ETAPA 2: ouvir "vila.iniciada"         -> jogo.vilaIniciada()
-        // ETAPA 3: ouvir "construcao.iniciada"   -> jogo.obraIniciada(...)
-        // ETAPA 4: ouvir "operacao.recusada"     -> jogo.recusado(...)
-        // ETAPA 5: ouvir "recurso.produzido"     -> jogo.recursoProduzido(...)
-        //          e "construcao.concluida"      -> jogo.obraConcluida(...)
-        // ETAPA 6: ouvir "vila.encerrada"        -> jogo.vilaEncerrada()
-
-        ouvir("estado.sincronizado", "guarda o estado e desenha a vila", (d) => {
+        // Cada ouvir(...) liga um evento do servidor a uma reação na tela.
+ 
+        // Servidor -> só este cliente: entrega o estado atual ao recém-chegado
+        ouvir("estado.sincronizado", "guarda o estado e desenha a taverna", (d) => {
           atualizar(d);
           jogo.mostrarEstado(d.estado);
         });
-
-        ouvir("vila.iniciada", "muda a faixa para temporada aberta", (d) => {
+ 
+        // Servidor -> todos: o Mestre abriu a taverna
+        ouvir("taverna.iniciada", "muda a faixa para taverna aberta", (d) => {
           atualizar(d);
-          avisar("A temporada começou!", "ok");
-          jogo.vilaIniciada();
+          avisar("A taverna abriu!", "ok");
+          jogo.tavernaIniciada();
         });
-
-        ouvir("construcao.iniciada", "mostra o canteiro de obras", (d) => {
+ 
+        // Servidor -> todos: um pedido foi aceito e o prato começou a ser preparado
+        ouvir("preparo.iniciado", "mostra o prato no fogão", (d) => {
           atualizar(d);
-          avisar(d.por + " iniciou uma obra");
-          jogo.obraIniciada(d.estado);
+          avisar(d.por + " começou a preparar um prato");
+          jogo.preparoIniciado(d.estado, d.tempo, d.id);
         });
-
+ 
+        // Servidor -> SÓ quem pediu: a recusa também é um evento
         ouvir("operacao.recusada", "avisa o motivo e a tela treme", (d) => {
           avisar(d.motivo, "erro");
           jogo.recusado(d.motivo);
         });
-
-        ouvir("recurso.produzido", "atualiza as toras e mostra o +N", (d) => {
+ 
+        // Servidor -> todos: disparado pelo temporizador, sem ninguém clicar
+        ouvir("ingrediente.produzido", "atualiza os ingredientes e mostra o +N", (d) => {
           atualizar(d);
-          jogo.recursoProduzido(d.estado);
-      });
-
-        ouvir("construcao.concluida", "transforma o canteiro em casa", (d) => {
-          atualizar(d);
-          avisar("Obra de " + d.por + " concluída! A produção aumentou.", "ok");
-          jogo.obraConcluida(d.estado);
+          jogo.ingredienteProduzido(d.estado);
         });
-
-        ouvir("vila.encerrada", "escurece a vila e bloqueia novas ações", (d) => {
+ 
+        // Servidor -> todos: o preparo terminou a tempo (temporizador de preparo)
+        ouvir("prato.concluido", "mostra o prato pronto e libera o cozinheiro", (d) => {
           atualizar(d);
-          avisar("Temporada encerrada.");
-          jogo.vilaEncerrada();
+          avisar("Prato de " + d.por + " pronto! A produção de ingredientes aumentou.", "ok");
+          jogo.pratoConcluido(d.id);
+        });
+ 
+        // Servidor -> todos: o preparo passou da paciência do cliente
+        ouvir("cliente.desistiu", "avisa que o cliente foi embora e libera o cozinheiro", (d) => {
+          atualizar(d);
+          avisar("O cliente de " + d.por + " desistiu de esperar!", "erro");
+          jogo.clienteDesistiu(d.id);
+        });
+ 
+        // Servidor -> todos: o Mestre encerrou a taverna
+        ouvir("taverna.encerrada", "escurece a taverna e bloqueia novas ações", (d) => {
+          atualizar(d);
+          avisar("Taverna encerrada.");
+          jogo.tavernaEncerrada();
         });
       }
-
+ 
       // ===== PEDIDOS (emit): o cliente PEDE algo ao servidor =====
-      // pedir(evento)
-      function abrirVila() {
-        pedir("vila.abertura_solicitada");
+      // O cliente nunca altera o estado: só pede e espera o fato do servidor.
+      function abrirTaverna() {
+        pedir("taverna.abertura_solicitada");
       }
-      function construir() {
-        pedir("construcao.solicitada");
+      function prepararPrato() {
+        pedir("prato.solicitado");
       }
-      function encerrarVila() {
-        pedir("vila.encerramento_solicitado");
+      function encerrarTaverna() {
+        pedir("taverna.encerramento_solicitado");
       }
-
+ 
       return { nome, papel, conectado, estado, avisos, eventosVisiveis, contadores, ocultarProducao, porMinuto,
-               entrar, abrirVila, construir, encerrarVila };
+               entrar, abrirTaverna, prepararPrato, encerrarTaverna };
     }
   }).mount("#app");
 </script>
