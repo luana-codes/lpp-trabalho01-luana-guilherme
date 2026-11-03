@@ -6,9 +6,6 @@
 
 **Tipo de vila (sorteio):** Taverna
 
-> Escreva este documento ANTES do código e faça o commit antes da Etapa 0.
-> Descreva o comportamento na linguagem da vila. Não cite tecnologia.
-
 ## 1. Regras da vila
 
 - **Recursos:** Ingredientes (primário) e Pratos Prontos (refinado).
